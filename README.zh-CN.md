@@ -133,6 +133,29 @@ boltgo version
 # boltgo 0.1.0-go
 ```
 
+### `boltgo probe`
+
+查询服务器的 save-to 目录。
+
+```bash
+boltgo probe <host:port>
+```
+
+**示例：**
+
+```bash
+$ boltgo probe 192.168.1.10:7879
+D:\hgmes\tmp
+```
+
+**Azure Pipelines 使用场景：**
+
+```powershell
+$saveDir = boltgo probe 192.168.1.10:7879
+Write-Host "Server save-to: $saveDir"
+boltgo send ./output $saveDir
+```
+
 ## 协议说明
 
 ### 线格式

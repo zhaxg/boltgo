@@ -135,6 +135,29 @@ boltgo version
 # boltgo 0.1.0-go
 ```
 
+### `boltgo probe`
+
+Query the server's save-to directory.
+
+```
+boltgo probe <host:port>
+```
+
+**Example:**
+
+```bash
+$ boltgo probe 192.168.1.10:7879
+D:\hgmes\tmp
+```
+
+**Use case in Azure Pipelines:**
+
+```powershell
+$saveDir = boltgo probe 192.168.1.10:7879
+Write-Host "Server save-to: $saveDir"
+boltgo send ./output $saveDir
+```
+
 ## Protocol
 
 ### Wire format
