@@ -69,6 +69,14 @@ type ControlFrame struct {
 	Handshake     *Handshake
 	TransferStart *TransferStart
 	Cancel        *Cancel
+	ProbeRequest  *ProbeRequest
+	ProbeResponse *ProbeResponse
+}
+
+type ProbeRequest struct{}
+
+type ProbeResponse struct {
+	SaveDir string
 }
 
 type BytesReceived struct {
@@ -423,6 +431,12 @@ func (m *ControlFrame) marshal() []byte {
 	if m.Cancel != nil {
 		buf = appendFieldBytes(buf, 3, m.Cancel.marshal())
 	}
+	if m.ProbeRequest != nil {
+		buf = appendFieldBytes(buf, 4, m.ProbeRequest.marshal())
+	}
+	if m.ProbeResponse != nil {
+		buf = appendFieldBytes(buf, 5, m.ProbeResponse.marshal())
+	}
 	return buf
 }
 
@@ -448,6 +462,16 @@ func (m *ControlFrame) unmarshal(buf []byte) error {
 			if err := m.Cancel.unmarshal(f.data); err != nil {
 				return err
 			}
+		case 4:
+			m.ProbeRequest = &ProbeRequest{}
+			if err := m.ProbeRequest.unmarshal(f.data); err != nil {
+				return err
+			}
+		case 5:
+			m.ProbeResponse = &ProbeResponse{}
+			if err := m.ProbeResponse.unmarshal(f.data); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -471,6 +495,34 @@ func (m *Cancel) unmarshal(buf []byte) error {
 			m.ReceiptID = string(f.data)
 		case 2:
 			m.Reason = string(f.data)
+		}
+	}
+	return nil
+}
+
+func (m *ProbeRequest) marshal() []byte {
+	return []byte{0} // minimal non-empty message (proto3 empty message)
+}
+
+func (m *ProbeRequest) unmarshal(buf []byte) error {
+	return nil // empty message
+}
+
+func (m *ProbeResponse) marshal() []byte {
+	var buf []byte
+	buf = appendString(buf, 1, m.SaveDir)
+	return buf
+}
+
+func (m *ProbeResponse) unmarshal(buf []byte) error {
+	fields, err := decodeFields(buf)
+	if err != nil {
+		return err
+	}
+	for _, f := range fields {
+		switch f.fieldNumber {
+		case 1:
+			m.SaveDir = string(f.data)
 		}
 	}
 	return nil

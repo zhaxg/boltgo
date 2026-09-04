@@ -372,6 +372,44 @@ func dialServer(ctx context.Context, cfg ClientConfig) (*quic.Conn, error) {
 	return conn, nil
 }
 
+// Probe sends a probe request to the server and returns the save directory
+func Probe(ctx context.Context, serverAddr string) (string, error) {
+	conn, err := dialServer(ctx, ClientConfig{ServerAddr: serverAddr})
+	if err != nil {
+		return "", err
+	}
+	defer conn.CloseWithError(0, "done")
+
+	// Open control stream
+	stream, err := conn.OpenStream()
+	if err != nil {
+		return "", fmt.Errorf("open stream: %w", err)
+	}
+
+	// Send sentinel (0x00) + ProbeRequest
+	cf := &ControlFrame{ProbeRequest: &ProbeRequest{}}
+	cfBytes := encodeControlFrame(cf)
+	buf := make([]byte, 0, 1+len(cfBytes))
+	buf = append(buf, 0x00) // sentinel for control stream
+	buf = append(buf, cfBytes...)
+	logVerbose("[boltgo-c] sending probe request (%d bytes)", len(buf))
+	if _, err := stream.Write(buf); err != nil {
+		return "", fmt.Errorf("send probe: %w", err)
+	}
+
+	// Read ProbeResponse
+	logVerbose("[boltgo-c] waiting for probe response...")
+	resp, err := decodeControlFrame(stream)
+	if err != nil {
+		return "", fmt.Errorf("receive probe response: %w", err)
+	}
+	if resp.ProbeResponse == nil {
+		return "", fmt.Errorf("no probe response received")
+	}
+
+	return resp.ProbeResponse.SaveDir, nil
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Server
 // ──────────────────────────────────────────────────────────────────
@@ -495,7 +533,7 @@ func handleConn(ctx context.Context, conn *quic.Conn, cfg ServerConfig) {
 		switch firstByte[0] {
 		case 0x00:
 			// Control stream (AeroSync protocol)
-			go handleControlStream(stream, state)
+			go handleControlStream(stream, state, cfg.ReceiveDir)
 		case 'U', 'D':
 			// Data stream (UPLOAD/DOWNLOAD)
 			go handleDataStream(stream, cfg.ReceiveDir, state, firstByte[0], cfg.MaxFileSize)
@@ -507,8 +545,8 @@ func handleConn(ctx context.Context, conn *quic.Conn, cfg ServerConfig) {
 	}
 }
 
-// handleControlStream processes AeroSync control stream (TransferStart)
-func handleControlStream(stream *quic.Stream, state *quicConnState) {
+// handleControlStream processes AeroSync control stream (TransferStart or ProbeRequest)
+func handleControlStream(stream *quic.Stream, state *quicConnState, receiveDir string) {
 	// Read length-delimited ControlFrame
 	cf, err := decodeControlFrame(stream)
 	if err != nil {
@@ -516,6 +554,17 @@ func handleControlStream(stream *quic.Stream, state *quicConnState) {
 		stream.Close()
 		return
 	}
+
+	// Handle ProbeRequest
+	if cf.ProbeRequest != nil {
+		logVerbose("[boltgo-s] probe request received")
+		resp := &ControlFrame{ProbeResponse: &ProbeResponse{SaveDir: receiveDir}}
+		respBytes := encodeControlFrame(resp)
+		stream.Write(respBytes)
+		stream.Close()
+		return
+	}
+
 	if cf.TransferStart == nil {
 		logVerbose("[boltgo-s] control frame has no TransferStart")
 		stream.Close()

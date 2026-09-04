@@ -7,3 +7,4 @@ test.txt
 testdir/
 bigfile.bin
 /bin/
+.code-graph/

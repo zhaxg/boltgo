@@ -84,6 +84,8 @@ func main() {
 		cmdSend(args[1:])
 	case "receive":
 		cmdReceive(args[1:])
+	case "probe":
+		cmdProbe(args[1:])
 	case "version":
 		fmt.Printf("boltgo %s\n", version)
 	case "help", "--help", "-h":
@@ -101,6 +103,7 @@ func printUsage() {
 Usage:
   boltgo send <file|dir> <host:port> [remote-path] [flags]
   boltgo receive [flags]
+  boltgo probe <host:port>
   boltgo version
 
 Global flags:
@@ -220,6 +223,25 @@ func cmdSend(args []string) {
 			os.Exit(ExitErrorAll)
 		}
 	}
+}
+
+func cmdProbe(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: boltgo probe <host:port>\n")
+		os.Exit(ExitFatal)
+	}
+
+	serverAddr := args[0]
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	saveDir, err := Probe(ctx, serverAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "probe error: %v\n", err)
+		os.Exit(ExitErrorConn)
+	}
+
+	fmt.Println(saveDir)
 }
 
 func cmdReceive(args []string) {
