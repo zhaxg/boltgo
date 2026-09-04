@@ -40,20 +40,15 @@ jobs:
         run: |
           GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o boltgo-windows-amd64.exe ./cmd/boltgo/
 
-      - name: Build Linux arm64
-        run: |
-          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o boltgo-linux-arm64 ./cmd/boltgo/
-
       - name: Compress with UPX
         run: |
           sudo apt-get update && sudo apt-get install -y upx-ucl
           upx --best boltgo-linux-amd64 || true
           upx --best boltgo-windows-amd64.exe || true
-          upx --best boltgo-linux-arm64 || true
 
       - name: Create checksums
         run: |
-          sha256sum boltgo-linux-amd64 boltgo-windows-amd64.exe boltgo-linux-arm64 > checksums.txt
+          sha256sum boltgo-linux-amd64 boltgo-windows-amd64.exe > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -69,7 +64,6 @@ jobs:
             |------|----------|
             | boltgo-linux-amd64 | Linux x86_64 |
             | boltgo-windows-amd64.exe | Windows x86_64 |
-            | boltgo-linux-arm64 | Linux ARM64 |
             
             ## Usage
             ```bash
@@ -83,7 +77,6 @@ jobs:
           files: |
             boltgo-linux-amd64
             boltgo-windows-amd64.exe
-            boltgo-linux-arm64
             checksums.txt
           draft: false
           prerelease: false
