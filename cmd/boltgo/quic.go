@@ -155,7 +155,7 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 
 			if e := sendFileAeroSync(ctx, conn, f, cfg.NoVerify); e != nil {
 				atomic.AddInt64(&errCount, 1)
-				log.Printf("[QUIC client] ERROR sending '%s': %v", f.remoteName, e)
+				log.Printf("[boltgo-c] ERROR sending '%s': %v", f.remoteName, e)
 			} else {
 				atomic.AddInt64(&sentCount, 1)
 				atomic.AddInt64(&sentBytes, int64(f.size))
@@ -173,7 +173,7 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 	if elapsed.Seconds() > 0 {
 		speed = float64(sentBytes) / elapsed.Seconds() / 1048576
 	}
-	log.Printf("[QUIC client] completed: %d/%d files, %s in %s (%.1f MB/s)",
+	log.Printf("[boltgo-c] completed: %d/%d files, %s in %s (%.1f MB/s)",
 		sentCount, len(files), formatBytes(totalSize), elapsed, speed)
 
 	if errCount > 0 {
@@ -274,7 +274,7 @@ func sendFileAeroSync(ctx context.Context, conn *quic.Conn, fi fileInfo, noVerif
 	// Finish the stream (queue FIN)
 	dataStream.Close()
 
-	log.Printf("[QUIC client] sent '%s' (%d bytes, sha256=%s)", fi.remoteName, fi_size, sha256hex[:12])
+	log.Printf("[boltgo-c] sent '%s' (%d bytes, sha256=%s)", fi.remoteName, fi_size, sha256hex[:12])
 
 	// ── 3. Best-effort receipt read (non-blocking, like AeroSync) ──
 	// Don't block on receipt - the drainer runs in background
@@ -343,7 +343,7 @@ func SendFile(ctx context.Context, cfg ClientConfig, filePath, remoteName string
 	if err := sendFileAeroSync(ctx, conn, f, cfg.NoVerify); err != nil {
 		return err
 	}
-	log.Printf("[QUIC client] completed: 1 file in %s", time.Since(start).Round(time.Millisecond))
+	log.Printf("[boltgo-c] completed: 1 file in %s", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -365,7 +365,7 @@ func dialServer(ctx context.Context, cfg ClientConfig) (*quic.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	log.Printf("[QUIC client] connected to %s", addr)
+	log.Printf("[boltgo-c] connected to %s", addr)
 	return conn, nil
 }
 
@@ -397,7 +397,7 @@ func RunServer(ctx context.Context, cfg ServerConfig) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	defer listener.Close()
-	log.Printf("[QUIC server] listening on %s (receive dir: %s)", addr, cfg.ReceiveDir)
+	log.Printf("[boltgo-s] listening on %s (receive dir: %s)", addr, cfg.ReceiveDir)
 
 	for {
 		conn, err := listener.Accept(ctx)
@@ -405,10 +405,10 @@ func RunServer(ctx context.Context, cfg ServerConfig) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			log.Printf("[QUIC server] accept error: %v", err)
+			logInfo("[boltgo-s] accept error: %v", err)
 			continue
 		}
-		log.Printf("[QUIC server] new connection from %s", conn.RemoteAddr())
+		log.Printf("[boltgo-s] new connection from %s", conn.RemoteAddr())
 		go handleConn(ctx, conn, cfg)
 	}
 }
@@ -478,14 +478,14 @@ func handleConn(ctx context.Context, conn *quic.Conn, cfg ServerConfig) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("[QUIC server] stream accept error: %v", err)
+			logVerbose("[boltgo-s] stream accept error: %v", err)
 			return
 		}
 
 		// Read first byte to determine stream type (like AeroSync)
 		var firstByte [1]byte
 		if _, err := io.ReadFull(stream, firstByte[:]); err != nil {
-			log.Printf("[QUIC server] read first byte: %v", err)
+			logVerbose("[boltgo-s] read first byte: %v", err)
 			return
 		}
 
@@ -497,7 +497,7 @@ func handleConn(ctx context.Context, conn *quic.Conn, cfg ServerConfig) {
 			// Data stream (UPLOAD/DOWNLOAD)
 			go handleDataStream(stream, cfg.ReceiveDir, state, firstByte[0], cfg.MaxFileSize)
 		default:
-			log.Printf("[QUIC server] unknown sentinel 0x%02x", firstByte[0])
+			logVerbose("[boltgo-s] unknown sentinel 0x%02x", firstByte[0])
 			io.Copy(io.Discard, stream)
 			stream.Close()
 		}
@@ -509,17 +509,17 @@ func handleControlStream(stream *quic.Stream, state *quicConnState) {
 	// Read length-delimited ControlFrame
 	cf, err := decodeControlFrame(stream)
 	if err != nil {
-		log.Printf("[QUIC server] control stream error: %v", err)
+		logVerbose("[boltgo-s] control stream error: %v", err)
 		stream.Close()
 		return
 	}
 	if cf.TransferStart == nil {
-		log.Printf("[QUIC server] control frame has no TransferStart")
+		logVerbose("[boltgo-s] control frame has no TransferStart")
 		stream.Close()
 		return
 	}
 	ts := cf.TransferStart
-	log.Printf("[QUIC server] control: TransferStart receipt=%s file=%s size=%d",
+	logVerbose("[boltgo-s] control: TransferStart receipt=%s file=%s size=%d",
 		ts.ReceiptID, ts.FileName, ts.SizeBytes)
 	state.put(ts.ReceiptID, quicControlEntry{metadata: ts, send: stream})
 }
@@ -543,7 +543,7 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 	headerLine := strings.TrimRight(string(hdr), "\n\r")
 
 	if !strings.HasPrefix(headerLine, "UPLOAD:") {
-		log.Printf("[QUIC server] bad header: %q", headerLine)
+		logVerbose("[boltgo-s] bad header: %q", headerLine)
 		stream.Close()
 		return
 	}
@@ -551,7 +551,7 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 	// Parse UPLOAD:filename:size:token:receipt_id
 	parts := strings.SplitN(headerLine[7:], ":", 5)
 	if len(parts) < 3 {
-		log.Printf("[QUIC server] malformed UPLOAD header")
+		logVerbose("[boltgo-s] malformed UPLOAD header")
 		stream.Close()
 		return
 	}
@@ -591,7 +591,7 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 	}
 
 	if maxFileSize > 0 && fileSize > maxFileSize {
-		log.Printf("[QUIC server] REJECTED '%s': size %d exceeds max", fileName, fileSize)
+		logInfo("[boltgo-s] REJECTED '%s': size %d exceeds max", fileName, fileSize)
 		io.Copy(io.Discard, dataReader)
 		stream.Close()
 		return
@@ -609,7 +609,7 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 				ef.Close()
 				existingHash := fmt.Sprintf("%x", h.Sum(nil))
 				if existingHash == expectedHash {
-					log.Printf("[QUIC server] SKIP '%s' (hash match)", fileName)
+					log.Printf("[boltgo-s] SKIP '%s' (hash match)", fileName)
 					io.Copy(io.Discard, dataReader)
 					stream.Close()
 					return
@@ -620,13 +620,13 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 
 	// Write file
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-		log.Printf("[QUIC server] mkdir error: %v", err)
+		logVerbose("[boltgo-s] mkdir error: %v", err)
 		stream.Close()
 		return
 	}
 	destFile, err := os.Create(destPath)
 	if err != nil {
-		log.Printf("[QUIC server] create file error: %v", err)
+		logVerbose("[boltgo-s] create file error: %v", err)
 		stream.Close()
 		return
 	}
@@ -641,17 +641,17 @@ func handleDataStream(stream *quic.Stream, receiveDir string, state *quicConnSta
 	actualHash := fmt.Sprintf("%x", h.Sum(nil))
 
 	if err != nil {
-		log.Printf("[QUIC server] receive error: %v", err)
+		logInfo("[boltgo-s] receive error: %v", err)
 		os.Remove(destPath)
 		stream.Close()
 		return
 	}
 
-	log.Printf("[QUIC server] received '%s' %d bytes", fileName, written)
+	logVerbose("[boltgo-s] received '%s' %d bytes", fileName, written)
 
 	checksumOK := true
 	if expectedHash != "" && expectedHash != "pending" && actualHash != expectedHash {
-		log.Printf("[QUIC server] HASH MISMATCH: expected=%s actual=%s", expectedHash[:12], actualHash[:12])
+		logInfo("[boltgo-s] HASH MISMATCH: expected=%s actual=%s", expectedHash[:12], actualHash[:12])
 		os.Remove(destPath)
 		checksumOK = false
 	}
@@ -675,13 +675,13 @@ func sendReceiptFrames(ctrlStream *quic.Stream, receiptID, sha256hex string, che
 		Received:  &Received{ChecksumOK: checksumOK, Sha256: sha256hex},
 	}
 	if _, err := ctrlStream.Write(encodeReceiptFrame(received)); err != nil {
-		log.Printf("[QUIC server] write Received frame error: %v", err)
+		logVerbose("[boltgo-s] write Received frame error: %v", err)
 		return
 	}
 	acked := &ReceiptFrame{ReceiptID: receiptID, Acked: &Acked{}}
 	if _, err := ctrlStream.Write(encodeReceiptFrame(acked)); err != nil {
-		log.Printf("[QUIC server] write Acked frame error: %v", err)
+		logVerbose("[boltgo-s] write Acked frame error: %v", err)
 		return
 	}
-	log.Printf("[QUIC server] sent Received + Acked for receipt=%s", receiptID)
+	logVerbose("[boltgo-s] sent Received + Acked for receipt=%s", receiptID)
 }

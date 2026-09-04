@@ -14,11 +14,26 @@ import (
 
 const version = "0.1.0-go"
 
+// Global verbose flag
+var verbose bool
+
 type milliWriter struct{}
 
 func (milliWriter) Write(p []byte) (int, error) {
 	ts := time.Now().Format("2006/01/02 15:04:05.000")
 	return os.Stderr.Write(append([]byte(ts+" "), p...))
+}
+
+// logInfo logs at info level (always shown)
+func logInfo(format string, v ...interface{}) {
+	log.Printf(format, v...)
+}
+
+// logVerbose logs at verbose level (only shown with -v)
+func logVerbose(format string, v ...interface{}) {
+	if verbose {
+		log.Printf(format, v...)
+	}
 }
 
 func main() {
@@ -30,7 +45,9 @@ func main() {
 	args := os.Args[1:]
 	filtered := args[:0]
 	for _, a := range args {
-		if a != "-v" && a != "--verbose" {
+		if a == "-v" || a == "--verbose" {
+			verbose = true
+		} else {
 			filtered = append(filtered, a)
 		}
 	}
