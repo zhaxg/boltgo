@@ -155,7 +155,7 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 
 			if e := sendFileAeroSync(ctx, conn, f, cfg.NoVerify); e != nil {
 				atomic.AddInt64(&errCount, 1)
-				log.Printf("[boltgo-c] ERROR sending '%s': %v", f.remoteName, e)
+				logInfo("[boltgo-c] ERROR sending '%s': %v", f.remoteName, e)
 			} else {
 				atomic.AddInt64(&sentCount, 1)
 				atomic.AddInt64(&sentBytes, int64(f.size))
@@ -277,7 +277,7 @@ func sendFileAeroSync(ctx context.Context, conn *quic.Conn, fi fileInfo, noVerif
 	// Finish the stream (queue FIN)
 	dataStream.Close()
 
-	log.Printf("[boltgo-c] sent '%s' (%d bytes, sha256=%s)", fi.remoteName, fi_size, sha256hex[:12])
+	logVerbose("[boltgo-c] sent '%s' (%d bytes, sha256=%s)", fi.remoteName, fi_size, sha256hex[:12])
 
 	// ── 3. Best-effort receipt read (non-blocking, like AeroSync) ──
 	// Don't block on receipt - the drainer runs in background
