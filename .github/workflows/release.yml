@@ -48,9 +48,9 @@ jobs:
 
       - name: Compress with UPX
         run: |
-          sudo apt-get update && sudo apt-get install -y upx-ucl
-          upx --best boltgo-linux-amd64 || true
-          upx --best boltgo-windows-amd64.exe || true
+          curl -sL https://github.com/upx/upx/releases/download/v5.2.1/upx-5.2.1-amd64_linux.tar.xz | tar xJ
+          ./upx-5.2.1-amd64_linux/upx --best boltgo-linux-amd64 || true
+          ./upx-5.2.1-amd64_linux/upx --best boltgo-windows-amd64.exe || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
