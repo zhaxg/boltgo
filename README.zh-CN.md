@@ -2,28 +2,39 @@
 
 基于 QUIC 协议的高性能文件传输 CLI 工具，Go 语言实现。
 
-boltgo 是 [AeroSync](https://github.com/zhaxg/AeroSync) 的 Go 语言精简版，仅保留 QUIC 传输协议，去掉 HTTP / S3 / FTP / Token 认证等模块。单二进制部署，零配置开箱即用，两端互通兼容。
+**robocopy 替代方案** — 专为内网 445 端口被封、SMB 不可用的环境设计。boltgo 使用 QUIC（端口 7789）跨防火墙传输文件，无需特殊网络配置。
 
-本项目是 Rust AeroSync 代码库的**逻辑移植**。实现或调试时，参考[原始 Rust 源码](https://github.com/zhaxg/AeroSync)获取协议的权威逻辑：
+基于 [AeroSync](https://github.com/zhaxg/AeroSync) QUIC 协议精简版，单二进制部署，零配置开箱即用，与 Rust AeroSync 字节级兼容。
 
-| Boltgo (Go) | AeroSync (Rust) | 说明 |
-|-------------|-----------------|------|
-| `internal/proto/messages.go` | `aerosync-proto/proto/aerosync/wire/v1.proto` | 线格式定义 |
-| `internal/receipt/codec.go` | `src/protocols/quic_receipt.rs` | Length-delimited protobuf 帧编解码 |
-| `internal/receipt/state.go` | `aerosync-domain/src/receipt.rs` | 7 状态 Receipt 状态机 |
-| `internal/quic/client.go` | `src/protocols/quic.rs` | QUIC 客户端（上传/下载） |
-| `internal/quic/server.go` | `src/core/server.rs` (QUIC 部分) | QUIC 服务端（监听 + 文件接收） |
-| `internal/quic/tls.go` | `src/core/tls.rs` + `src/protocols/quic.rs` | TLS 证书生成 |
+## 为什么需要 boltgo？
+
+很多企业和政府网络中，SMB（端口 445）被防火墙策略阻断。这导致 `robocopy`、`cp`、共享文件夹全部不可用。boltgo 解决这个问题：
+
+- 使用 **QUIC**（基于 UDP），通常能穿越阻断 TCP 445 的防火墙
+- **无需服务端部署** — 接收方只需运行 `boltgo receive`，发送方直连
+- **单文件** — 无需安装、无依赖、无需管理员权限
+- **目录传输** — 默认递归，保持目录结构
+- **智能去重** — 比较 SHA-256，自动跳过相同文件
+
+```bash
+# 替代: robocopy \\server\share\project C:\local\project /MIR
+# boltgo 等效:
+boltgo receive --save-to C:\local\project --port 7789
+boltgo send D:\server\share\project 192.168.1.10:7789
+```
 
 ## 特性
 
 - **QUIC 传输**：基于 `quic-go`，TLS 1.3 自动协商，ALPN `aerosync/1`
-- **零配置 TLS**：自动生成自签名证书，开发环境即插即用
-- **SHA-256 完整性校验**：发送方预计算，接收方验证，不一致自动拒绝
-- **Receipt 协议**：双向确认机制，发送方知道接收方是否成功处理文件
-- **Protobuf 线格式**：与 Rust AeroSync 实现字节级兼容
-- **控制流复用**：`0x00` 哨兵字节区分控制流和数据流，无需版本升级
-- **单二进制**：无外部依赖，`go build` 即可部署
+- **零配置 TLS**：自动生成自签名证书
+- **智能去重**：比较 SHA-256，跳过相同文件，覆盖不同文件
+- **目录传输**：默认递归，保持目录结构
+- **远程路径**：发送时指定接收端子路径
+- **小文件优化**：256KB 以下走快速路径，无 receipt 开销
+- **大文件优化**：并发传输，边传边算 SHA-256，缓冲写入
+- **Receipt 协议**：与 AeroSync 双向确认
+- **Protobuf 线格式**：与 Rust AeroSync 字节级兼容
+- **Flag 任意顺序**：参数放在命令行任意位置都能识别
 
 ## 安装
 
@@ -32,8 +43,8 @@ boltgo 是 [AeroSync](https://github.com/zhaxg/AeroSync) 的 Go 语言精简版�
 ```bash
 git clone https://github.com/yourname/boltgo.git
 cd boltgo
-go build -o boltgo.exe ./cmd/aerosync    # Windows
-go build -o boltgo ./cmd/aerosync        # Linux / macOS
+go build -o boltgo.exe ./cmd/boltgo    # Windows
+go build -o boltgo ./cmd/boltgo        # Linux / macOS
 ```
 
 ### 前置要求
@@ -43,73 +54,76 @@ go build -o boltgo ./cmd/aerosync        # Linux / macOS
 
 ## 快速开始
 
-### 接收端（目标机器）
+### 接收端
 
 ```bash
-boltgo receive --port 7789 --dir ./downloads
+boltgo receive --port 7789 --save-to ./downloads
 ```
 
-输出：
-
-```
-2026/09/04 15:00:00 [QUIC server] listening on 0.0.0.0:7789 (receive dir: ./downloads)
-```
-
-### 发送端（源机器）
+### 发送端 — 单文件
 
 ```bash
-# 发送单个文件
 boltgo send ./report.csv 192.168.1.10:7789
-
-# 发送大文件
-boltgo send ./dataset.tar.gz 192.168.1.10:7789
 ```
 
-输出：
+### 发送端 — 目录（递归，保持结构）
 
-```
-2026/09/04 15:00:05 [QUIC client] connected to 192.168.1.10:7789
-2026/09/04 15:00:05 [QUIC client] computing SHA-256 for './report.csv'...
-2026/09/04 15:00:05 [QUIC client] sending 'report.csv' (42000 bytes, sha256=a1b2c3d4...)
-2026/09/04 15:00:05 [QUIC client] file 'report.csv' sent successfully (42000 bytes)
+```bash
+boltgo send ./project 192.168.1.10:7789
 ```
 
-接收端输出：
+### 发送端 — 带远程路径
 
+```bash
+boltgo send ./data.bin 192.168.1.10:7789 /backups/2024
 ```
-2026/09/04 15:00:05 [QUIC server] new connection from 192.168.1.5:52431
-2026/09/04 15:00:05 [QUIC server] control: TransferStart receipt=... file=report.csv size=42000
-2026/09/04 15:00:05 [QUIC server] receiving 'report.csv' (42000 bytes) → ./downloads/report.csv
-2026/09/04 15:00:05 [QUIC server] received 'report.csv' 42000 bytes, sha256=a1b2c3d4...
-2026/09/04 15:00:05 [QUIC server] file 'report.csv' saved successfully
+
+### 重复发送（智能去重 — 相同文件跳过）
+
+```bash
+boltgo send ./project 192.168.1.10:7789
+# 第一次：传输所有文件
+# 第二次：跳过相同文件，只传变化的
 ```
 
 ## CLI 参考
 
+### 全局参数
+
+| 参数 | 说明 |
+|------|------|
+| `-v, --verbose` | 详细日志输出（含文件名+行号） |
+
 ### `boltgo send`
 
 ```
-boltgo send <FILE> <HOST:PORT>
+boltgo send [flags] <file|dir> <host:port> [remote-path]
 ```
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `<FILE>` | 源文件路径 | — |
-| `<HOST:PORT>` | 目标地址 | — |
+| `<file\|dir>` | 源文件或目录（自动递归） | — |
+| `<host:port>` | 目标地址 | — |
+| `[remote-path]` | 追加到接收端 `--save-to` 的子路径 | 根目录 |
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--no-verify` | false | 跳过接收端 SHA-256 完整性校验 |
+| `--parallel` | 5 | 大文件最大并发传输数 |
+| `--retry` | 3 | 每个文件重试次数 |
+| `--small-threshold` | 262144 (256KB) | 小于此大小走快速路径 |
 
 ### `boltgo receive`
 
 ```
-boltgo receive [OPTIONS]
+boltgo receive [flags]
 ```
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--port` | QUIC 监听端口 | 7789 |
-| `--dir` | 文件保存目录 | ./received |
-| `--bind` | 绑定地址 | 0.0.0.0 |
-| `--cert` | TLS 证书文件（PEM） | 自动生成 |
-| `--key` | TLS 私钥文件（PEM） | 自动生成 |
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--port` | 7789 | QUIC 监听端口 |
+| `--save-to` | ./received | 文件保存目录 |
+| `--bind` | 0.0.0.0 | 绑定地址 |
 
 ### `boltgo version`
 
@@ -120,17 +134,13 @@ boltgo version
 
 ## 协议说明
 
-### QUIC 传输层
-
-boltgo 使用 QUIC 协议（基于 `quic-go` 库），ALPN 标识为 `aerosync/1`。TLS 1.3 自动协商，开发模式跳过证书验证。
-
 ### 线格式
 
-每次传输使用三条 QUIC 双向流：
+每次传输使用两条 QUIC 双向流：
 
 **控制流**（发送方发起）：
 ```
-[0x00 sentinel] [varint 长度] [protobuf ControlFrame{TransferStart{...}}]
+[0x00 哨兵] [varint 长度] [protobuf ControlFrame{TransferStart{...}}]
 ```
 
 **数据流**（发送方发起）：
@@ -140,78 +150,23 @@ HASH:sha256\n
 <原始文件字节>
 ```
 
-**Receipt 帧**（接收方回传，走控制流的接收半边）：
+**Receipt 帧**（接收方回复到控制流）：
 ```
 [varint 长度] [protobuf ReceiptFrame{Received{checksum_ok:true, sha256:"..."}}]
 [varint 长度] [protobuf ReceiptFrame{Acked{}}]
 ```
 
-### 控制流复用
+### 智能去重
 
-接收方通过首字节分发：
-
-- `0x00` → 控制流：解析 length-delimited `ControlFrame`
-- 其它字符（`U`/`D`）→ 传统数据流：解析 `UPLOAD:`/`DOWNLOAD:` 头
-
-### Receipt 状态机（RFC-002）
-
-每次传输携带双向 Receipt 流，实现 7 状态生命周期：
-
-```
-                ┌──────────────┐
-                │  INITIATED   │ ← 创建 Receipt 对象
-                └──────┬───────┘
-                       │ stream opened
-                       ▼
-                ┌──────────────┐
-            ┌──►│STREAM_OPENED │
-            │   └──────┬───────┘
-            │          │ all bytes flushed
-            │          ▼
-            │   ┌──────────────────┐
-            │   │DATA_TRANSFERRED  │
-            │   └──────┬───────────┘
-            │          │ stream closed
-            │          ▼
-            │   ┌──────────────┐
-            │   │STREAM_CLOSED │
-            │   └──────┬───────┘
-            │          │ checksum verified
-            │          ▼
-            │   ┌──────────────┐
-            │   │  PROCESSING  │
-            │   └──────┬───────┘
-            │          │ app ack
-            │          ▼
-            │   ┌──────────────┐
-            │   │  COMPLETED   │ ← 终态：成功
-            │   └──────────────┘
-            │
-            │   任何错误 / nack
-            └─►┌──────────────┐
-               │    FAILED    │ ← 终态：失败
-               └──────────────┘
-```
-
-Receipt 帧类型：
-
-| 帧类型 | 方向 | 说明 |
-|--------|------|------|
-| `BytesReceived` | 接收方 → 发送方 | 周期性字节进度 |
-| `Received` | 接收方 → 发送方 | 校验通过，所有字节已接收 |
-| `Acked` | 接收方 → 发送方 | 应用层确认（agent ack） |
-| `Nacked` | 接收方 → 发送方 | 应用层拒绝 + 原因 |
-| `Failed` | 接收方 → 发送方 | 结构化错误（错误码 + 详情） |
+接收方收到文件时：
+1. 比较文件大小 — 不同 → 覆盖
+2. 大小相同 → 计算现有文件 SHA-256
+3. SHA-256 匹配 → SKIP（日志：`SKIP 'file': identical`）
+4. SHA-256 不同 → 覆盖
 
 ### 与 AeroSync 互通
 
 boltgo 与 Rust AeroSync v0.2+ **字节级线格式兼容**：
-
-- 相同 ALPN `aerosync/1`
-- 相同 `0x00` 控制流哨兵
-- 相同 length-delimited protobuf 编码（`prost` ↔ 手写 Go codec）
-- 相同 `UPLOAD:` 数据流头格式
-- 相同 Receipt 帧结构
 
 ```bash
 # Rust AeroSync 发送 → Go boltgo 接收
@@ -225,49 +180,43 @@ aerosync receive --quic-port 7789
 
 ## 测试验证
 
-### 本地回环测试
+### 本地回环 — 单文件
 
 ```bash
-# 终端 1：启动接收端
-go run ./cmd/aerosync receive --port 7789 --dir ./inbox
-
-# 终端 2：创建测试文件并发送
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
 echo "Hello boltgo!" > test.txt
-go run ./cmd/aerosync send test.txt 127.0.0.1:7789
-
-# 验证接收
+go run ./cmd/boltgo send test.txt 127.0.0.1:7789
 cat ./inbox/test.txt
-# Hello boltgo!
 ```
 
-### 大文件测试
+### 本地回环 — 目录
 
 ```bash
-# 生成 100MB 测试文件
-dd if=/dev/zero of=bigfile.bin bs=1M count=100
-
-# 终端 1
-go run ./cmd/aerosync receive --port 7789 --dir ./inbox
-
-# 终端 2
-go run ./cmd/aerosync send bigfile.bin 127.0.0.1:7789
-
-# 校验
-sha256sum bigfile.bin ./inbox/bigfile.bin
-# 两个值应该完全一致
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789
+find ./inbox/mydir -type f
 ```
 
-### SHA-256 完整性测试
+### 智能去重
 
 ```bash
-# 发送带 hash 的文件
-sha256sum test.txt
-# 输出: a1b2c3... test.txt
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789    # 传输所有
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789    # 跳过相同
+# 服务端日志: SKIP 'file': identical (sha256=...)
+```
 
-# 接收端日志会显示：
-# [QUIC server] received 'test.txt' 14 bytes, sha256=a1b2c3...
-# 如果 hash 不匹配，传输会失败并输出：
-# [QUIC server] HASH MISMATCH: expected=xxx actual=yyy
+### 性能调优
+
+```bash
+# 调整小文件阈值
+go run ./cmd/boltgo send --small-threshold 1048576 ./dir host:7789
+
+# 增加并发
+go run ./cmd/boltgo send --parallel 10 ./dir host:7789
+
+# 跳过校验
+go run ./cmd/boltgo send --no-verify ./dir host:7789
 ```
 
 ### Go 单元测试
@@ -280,37 +229,19 @@ go test ./...
 
 ```
 boltgo/
-├── cmd/aerosync/main.go           # CLI 入口（send / receive / version）
-├── internal/
-│   ├── proto/messages.go          # Protobuf 消息类型 + 手写编解码器
-│   ├── receipt/
-│   │   ├── codec.go               # Length-delimited protobuf 帧编解码
-│   │   └── state.go               # 7 状态 Receipt 状态机
-│   └── quic/
-│       ├── tls.go                 # 自签名证书生成
-│       ├── client.go              # QUIC 客户端（上传/下载）
-│       └── server.go              # QUIC 服务端（监听 + 文件接收）
-├── proto/aerosync/wire/v1.proto   # Protobuf 协议定义（单文件真相源）
+├── cmd/boltgo/
+│   ├── main.go        # CLI 入口（send / receive / version）
+│   ├── proto.go       # Protobuf 类型 + 手写编解码器
+│   ├── receipt.go     # Length-delimited protobuf 帧编解码
+│   └── quic.go        # QUIC 客户端 + 服务端 + TLS
+├── bin/
+│   ├── boltgo         # Linux
+│   └── boltgo.exe     # Windows（UPX 压缩）
+├── proto/aerosync/wire/v1.proto
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
-
-## 与 AeroSync 的差异
-
-| 特性 | AeroSync (Rust) | boltgo (Go) |
-|------|-----------------|-------------|
-| 语言 | Rust 1.89+ | Go 1.21+ |
-| QUIC 库 | quinn 0.11 | quic-go |
-| 传输协议 | QUIC + HTTP + S3 + FTP | 仅 QUIC |
-| Token 认证 | HMAC-SHA256 | 无（已移除） |
-| 断点续传 | ✓（32MB 分片） | 后续版本支持 |
-| MCP 工具 | 11 个 | 无 |
-| Python SDK | ✓ | 无 |
-| mDNS 发现 | ✓ | 无 |
-| Receipt 协议 | ✓ | ✓（兼容） |
-| Protobuf 编解码 | prost（代码生成） | 手写（零依赖） |
-| 二进制大小 | ~15 MB | ~8 MB |
 
 ## 依赖
 

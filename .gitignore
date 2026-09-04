@@ -1,0 +1,8 @@
+boltgo
+boltgo.exe
+*.exe
+inbox/
+received/
+test.txt
+testdir/
+bigfile.bin

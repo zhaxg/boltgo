@@ -2,30 +2,41 @@
 
 High-performance QUIC file transfer CLI tool, written in Go.
 
-boltgo is a Go reimplementation of the [AeroSync](https://github.com/zhaxg/AeroSync) QUIC file transfer protocol — stripped down to QUIC only, with no HTTP/S3/FTP or token auth. Single binary, zero config, wire-compatible with the Rust AeroSync implementation.
+**A drop-in replacement for robocopy** — designed for environments where SMB (port 445) is blocked and network drives are unavailable. boltgo uses QUIC (port 7789) to transfer files across firewalls without any special network configuration.
 
-This project is a **logic port** from the Rust AeroSync codebase. When implementing or debugging, refer to the [original Rust source](https://github.com/zhaxg/AeroSync) for the canonical protocol logic:
-
-| Boltgo (Go) | AeroSync (Rust) | Description |
-|-------------|-----------------|-------------|
-| `internal/proto/messages.go` | `aerosync-proto/proto/aerosync/wire/v1.proto` | Wire format definitions |
-| `internal/receipt/codec.go` | `src/protocols/quic_receipt.rs` | Length-delimited protobuf framing |
-| `internal/receipt/state.go` | `aerosync-domain/src/receipt.rs` | 7-state receipt FSM |
-| `internal/quic/client.go` | `src/protocols/quic.rs` | QUIC client (upload/download) |
-| `internal/quic/server.go` | `src/core/server.rs` (QUIC section) | QUIC server (accept + receive) |
-| `internal/quic/tls.go` | `src/core/tls.rs` + `src/protocols/quic.rs` | TLS certificate generation |
+Built on the [AeroSync](https://github.com/zhaxg/AeroSync) QUIC protocol — stripped down to QUIC only, single binary, zero config, wire-compatible with the Rust AeroSync implementation.
 
 > [中文说明](README.zh-CN.md)
+
+## Why boltgo?
+
+In many corporate and government networks, SMB (port 445) is blocked by firewall policy. This makes `robocopy`, `cp`, and shared folders unusable. boltgo solves this by:
+
+- Using **QUIC** (UDP-based) which typically passes through firewalls that block TCP 445
+- **No server setup required** — receiver just runs `boltgo receive`, sender connects directly
+- **Single binary** — no installation, no dependencies, no admin rights needed
+- **Directory transfer** — recursive by default, preserves structure
+- **Smart dedup** — compares SHA-256, skips identical files automatically
+
+```bash
+# Replaces: robocopy \\server\share\project C:\local\project /MIR
+# boltgo equivalent:
+boltgo receive --save-to C:\local\project --port 7789
+boltgo send D:\server\share\project 192.168.1.10:7789
+```
 
 ## Features
 
 - **QUIC transport** — `quic-go` based, TLS 1.3 auto-negotiation, ALPN `aerosync/1`
 - **Zero-config TLS** — self-signed certificates generated automatically
-- **SHA-256 integrity** — sender pre-computes, receiver verifies, mismatch auto-rejects
-- **Receipt protocol** — bidirectional confirmation: sender knows when receiver processed the file
+- **Smart dedup** — compares SHA-256, skips identical files, overwrites different files
+- **Directory transfer** — recursive by default, structure preserved
+- **Remote path** — specify destination subpath on receiver
+- **Small file optimization** — fast path for files < 256KB, no receipt overhead
+- **Large file optimization** — concurrent transfers, in-flight SHA-256, buffered I/O
+- **Receipt protocol** — bidirectional confirmation with AeroSync
 - **Protobuf wire format** — byte-compatible with Rust AeroSync (prost ↔ hand-rolled Go codec)
-- **Control stream multiplexing** — `0x00` sentinel byte distinguishes control from data streams
-- **Single binary** — no external dependencies, `go build` and deploy
+- **Any-order flags** — flags can be placed anywhere in the command
 
 ## Install
 
@@ -34,8 +45,8 @@ This project is a **logic port** from the Rust AeroSync codebase. When implement
 ```bash
 git clone https://github.com/yourname/boltgo.git
 cd boltgo
-go build -o boltgo.exe ./cmd/aerosync    # Windows
-go build -o boltgo ./cmd/aerosync        # Linux / macOS
+go build -o boltgo.exe ./cmd/boltgo    # Windows
+go build -o boltgo ./cmd/boltgo        # Linux / macOS
 ```
 
 ### Requirements
@@ -48,56 +59,73 @@ go build -o boltgo ./cmd/aerosync        # Linux / macOS
 ### Receiver (target machine)
 
 ```bash
-boltgo receive --port 7789 --dir ./downloads
+boltgo receive --port 7789 --save-to ./downloads
 ```
 
-Output:
-
-```
-2026/09/04 15:00:00 [QUIC server] listening on 0.0.0.0:7789 (receive dir: ./downloads)
-```
-
-### Sender (source machine)
+### Sender — single file
 
 ```bash
 boltgo send ./report.csv 192.168.1.10:7789
 ```
 
-Output:
+### Sender — directory (recursive, structure preserved)
 
+```bash
+boltgo send ./project 192.168.1.10:7789
 ```
-2026/09/04 15:00:05 [QUIC client] connected to 192.168.1.10:7789
-2026/09/04 15:00:05 [QUIC client] computing SHA-256 for './report.csv'...
-2026/09/04 15:00:05 [QUIC client] sending 'report.csv' (42000 bytes, sha256=a1b2c3d4...)
-2026/09/04 15:00:05 [QUIC client] file 'report.csv' sent successfully (42000 bytes)
+
+### Sender — with remote path
+
+```bash
+boltgo send ./data.bin 192.168.1.10:7789 /backups/2024
+```
+
+### Re-run (smart dedup — identical files skipped)
+
+```bash
+boltgo send ./project 192.168.1.10:7789
+# First run: transfers all files
+# Second run: skips identical files, only transfers changed ones
 ```
 
 ## CLI reference
 
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `-v, --verbose` | Verbose log output (includes file:line in log) |
+
 ### `boltgo send`
 
 ```
-boltgo send <FILE> <HOST:PORT>
+boltgo send [flags] <file|dir> <host:port> [remote-path]
 ```
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `<FILE>` | Source file path | — |
-| `<HOST:PORT>` | Target address | — |
+| `<file\|dir>` | Source file or directory (auto-recursive) | — |
+| `<host:port>` | Target address | — |
+| `[remote-path]` | Subpath appended to receiver's `--save-to` | root |
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-verify` | false | Skip SHA-256 integrity check on receiver |
+| `--parallel` | 5 | Max concurrent transfers for large files |
+| `--retry` | 3 | Retry attempts per file |
+| `--small-threshold` | 262144 (256KB) | Files below this use fast path (no receipt) |
 
 ### `boltgo receive`
 
 ```
-boltgo receive [OPTIONS]
+boltgo receive [flags]
 ```
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--port` | QUIC listen port | 7789 |
-| `--dir` | File save directory | ./received |
-| `--bind` | Bind address | 0.0.0.0 |
-| `--cert` | TLS certificate file (PEM) | auto-generated |
-| `--key` | TLS key file (PEM) | auto-generated |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 7789 | QUIC listen port |
+| `--save-to` | ./received | Directory to save received files |
+| `--bind` | 0.0.0.0 | Bind address |
 
 ### `boltgo version`
 
@@ -110,7 +138,7 @@ boltgo version
 
 ### Wire format
 
-Each transfer uses three QUIC bidirectional streams:
+Each transfer uses two QUIC bidirectional streams per file:
 
 **Control stream** (sender-initiated):
 ```
@@ -124,34 +152,19 @@ HASH:sha256\n
 <raw file bytes>
 ```
 
-**Receipt frames** (receiver replies on control stream's recv half):
+**Receipt frames** (receiver replies on control stream):
 ```
 [varint length] [protobuf ReceiptFrame{Received{checksum_ok:true, sha256:"..."}}]
 [varint length] [protobuf ReceiptFrame{Acked{}}]
 ```
 
-### Control stream multiplexing
+### Smart dedup
 
-Receiver dispatches on first byte:
-- `0x00` → control stream: parse length-delimited `ControlFrame`
-- Other (`U`/`D`) → legacy data stream: parse `UPLOAD:`/`DOWNLOAD:` header
-
-### Receipt protocol (RFC-002)
-
-7-state lifecycle machine:
-
-```
-INITIATED → STREAM_OPENED → DATA_TRANSFERRED → STREAM_CLOSED → PROCESSING → COMPLETED
-                                                           ↘ FAILED (any error)
-```
-
-| Frame | Direction | Purpose |
-|-------|-----------|---------|
-| `BytesReceived` | receiver → sender | Periodic byte progress |
-| `Received` | receiver → sender | Checksum verified, all bytes received |
-| `Acked` | receiver → sender | Application-level acknowledgement |
-| `Nacked` | receiver → sender | Application-level rejection + reason |
-| `Failed` | receiver → sender | Structured error (error code + detail) |
+When receiver gets a file that already exists:
+1. Compare file sizes — different → overwrite
+2. Sizes match → compute SHA-256 of existing file
+3. SHA-256 matches → SKIP (log: `SKIP 'file': identical`)
+4. SHA-256 differs → overwrite
 
 ### Interop with AeroSync
 
@@ -169,31 +182,43 @@ aerosync receive --quic-port 7789
 
 ## Testing
 
-### Local loopback
+### Local loopback — single file
 
 ```bash
-# Terminal 1: start receiver
-go run ./cmd/aerosync receive --port 7789 --dir ./inbox
-
-# Terminal 2: create test file and send
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
 echo "Hello boltgo!" > test.txt
-go run ./cmd/aerosync send test.txt 127.0.0.1:7789
-
-# Verify receipt
+go run ./cmd/boltgo send test.txt 127.0.0.1:7789
 cat ./inbox/test.txt
-# Hello boltgo!
 ```
 
-### Large file
+### Local loopback — directory
 
 ```bash
-dd if=/dev/zero of=bigfile.bin bs=1M count=100
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789
+find ./inbox/mydir -type f
+```
 
-go run ./cmd/aerosync receive --port 7789 --dir ./inbox
-go run ./cmd/aerosync send bigfile.bin 127.0.0.1:7789
+### Smart dedup
 
-sha256sum bigfile.bin ./inbox/bigfile.bin
-# Both hashes must match
+```bash
+go run ./cmd/boltgo receive --port 7789 --save-to ./inbox
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789    # transfers all
+go run ./cmd/boltgo send ./mydir 127.0.0.1:7789    # skips identical
+# Server log: SKIP 'file': identical (sha256=...)
+```
+
+### Performance tuning
+
+```bash
+# Tune small file threshold
+go run ./cmd/boltgo send --small-threshold 1048576 ./dir host:7789
+
+# Increase concurrency
+go run ./cmd/boltgo send --parallel 10 ./dir host:7789
+
+# Skip integrity check
+go run ./cmd/boltgo send --no-verify ./dir host:7789
 ```
 
 ### Unit tests
@@ -206,18 +231,17 @@ go test ./...
 
 ```
 boltgo/
-├── cmd/aerosync/main.go           # CLI entry point (send / receive / version)
-├── internal/
-│   ├── proto/messages.go          # Protobuf types + hand-rolled codec
-│   ├── receipt/
-│   │   ├── codec.go               # Length-delimited protobuf framing
-│   │   └── state.go               # 7-state receipt FSM
-│   └── quic/
-│       ├── tls.go                 # Self-signed cert generation
-│       ├── client.go              # QUIC client (upload/download)
-│       └── server.go              # QUIC server (accept + receive)
-├── proto/aerosync/wire/v1.proto   # Canonical protobuf definition
+├── cmd/boltgo/
+│   ├── main.go        # CLI entry (send / receive / version)
+│   ├── proto.go       # Protobuf types + hand-rolled codec
+│   ├── receipt.go     # Length-delimited protobuf framing
+│   └── quic.go        # QUIC client + server + TLS
+├── bin/
+│   ├── boltgo         # Linux
+│   └── boltgo.exe     # Windows (UPX compressed)
+├── proto/aerosync/wire/v1.proto
 ├── go.mod
+├── go.sum
 └── README.md
 ```
 
