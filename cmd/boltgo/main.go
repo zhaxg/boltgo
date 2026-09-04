@@ -14,6 +14,19 @@ import (
 
 const version = "0.1.0-go"
 
+// Exit codes (inspired by robocopy)
+const (
+	ExitSuccess         = 0  // All files transferred successfully
+	ExitSuccessCopied   = 1  // Success: files were copied
+	ExitSuccessSkipped  = 2  // Success: files were skipped (dedup)
+	ExitSuccessMixed    = 3  // Success: some copied, some skipped
+	ExitErrorConn       = 8  // Connection error (cannot reach server)
+	ExitErrorTLS        = 9  // TLS/handshake error
+	ExitErrorPartial    = 10 // Partial failure (some files failed)
+	ExitErrorAll        = 11 // All files failed
+	ExitFatal           = 16 // Fatal error (bad args, path not found, etc.)
+)
+
 // Global verbose flag
 var verbose bool
 
@@ -36,10 +49,20 @@ func logVerbose(format string, v ...interface{}) {
 	}
 }
 
+// ExitError represents an error with an exit code
+type ExitError struct {
+	Code    int
+	Message string
+}
+
+func (e *ExitError) Error() string {
+	return e.Message
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+		os.Exit(ExitFatal)
 	}
 
 	args := os.Args[1:]
@@ -68,7 +91,7 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", args[0])
 		printUsage()
-		os.Exit(1)
+		os.Exit(ExitFatal)
 	}
 }
 
@@ -136,7 +159,7 @@ func cmdSend(args []string) {
 
 	if len(positional) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: boltgo send [flags] <file|dir> <host:port> [remote-path]\n")
-		os.Exit(1)
+		os.Exit(ExitFatal)
 	}
 
 	srcPath := positional[0]
@@ -150,7 +173,7 @@ func cmdSend(args []string) {
 	info, err := os.Stat(srcPath)
 	if os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "path not found: %s\n", srcPath)
-		os.Exit(1)
+		os.Exit(ExitFatal)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -176,8 +199,12 @@ func cmdSend(args []string) {
 	if info.IsDir() {
 		absPath, _ := filepath.Abs(srcPath)
 		if err := SendDir(ctx, cfg, absPath, remotePrefix); err != nil {
+			if exitErr, ok := err.(*ExitError); ok {
+				fmt.Fprintf(os.Stderr, "send error: %s\n", exitErr.Message)
+				os.Exit(exitErr.Code)
+			}
 			fmt.Fprintf(os.Stderr, "send error: %v\n", err)
-			os.Exit(1)
+			os.Exit(ExitErrorAll)
 		}
 	} else {
 		remoteName := filepath.Base(srcPath)
@@ -185,8 +212,12 @@ func cmdSend(args []string) {
 			remoteName = remotePrefix + "/" + remoteName
 		}
 		if err := SendFile(ctx, cfg, srcPath, remoteName); err != nil {
+			if exitErr, ok := err.(*ExitError); ok {
+				fmt.Fprintf(os.Stderr, "send error: %s\n", exitErr.Message)
+				os.Exit(exitErr.Code)
+			}
 			fmt.Fprintf(os.Stderr, "send error: %v\n", err)
-			os.Exit(1)
+			os.Exit(ExitErrorAll)
 		}
 	}
 }
@@ -235,7 +266,11 @@ func cmdReceive(args []string) {
 	}
 
 	if err := RunServer(ctx, cfg); err != nil {
+		if exitErr, ok := err.(*ExitError); ok {
+			fmt.Fprintf(os.Stderr, "server error: %s\n", exitErr.Message)
+			os.Exit(exitErr.Code)
+		}
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitFatal)
 	}
 }

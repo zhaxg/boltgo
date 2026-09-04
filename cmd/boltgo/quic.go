@@ -102,7 +102,7 @@ type fileInfo struct {
 func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string) error {
 	conn, err := dialServer(ctx, cfg)
 	if err != nil {
-		return err
+		return &ExitError{Code: ExitErrorConn, Message: fmt.Sprintf("connection failed: %v", err)}
 	}
 	defer conn.CloseWithError(0, "done")
 
@@ -177,7 +177,10 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 		sentCount, len(files), formatBytes(totalSize), elapsed, speed)
 
 	if errCount > 0 {
-		return fmt.Errorf("%d files failed to send", errCount)
+		if sentCount == 0 {
+			return &ExitError{Code: ExitErrorAll, Message: fmt.Sprintf("all %d files failed to send", errCount)}
+		}
+		return &ExitError{Code: ExitErrorPartial, Message: fmt.Sprintf("%d/%d files failed to send", errCount, len(files))}
 	}
 	return nil
 }
@@ -330,18 +333,18 @@ func formatBytes(b uint64) string {
 func SendFile(ctx context.Context, cfg ClientConfig, filePath, remoteName string) error {
 	conn, err := dialServer(ctx, cfg)
 	if err != nil {
-		return err
+		return &ExitError{Code: ExitErrorConn, Message: fmt.Sprintf("connection failed: %v", err)}
 	}
 	defer conn.CloseWithError(0, "done")
 
 	start := time.Now()
 	fi, err := os.Stat(filePath)
 	if err != nil {
-		return err
+		return &ExitError{Code: ExitFatal, Message: fmt.Sprintf("stat file: %v", err)}
 	}
 	f := fileInfo{path: filePath, remoteName: remoteName, size: uint64(fi.Size())}
 	if err := sendFileAeroSync(ctx, conn, f, cfg.NoVerify); err != nil {
-		return err
+		return &ExitError{Code: ExitErrorAll, Message: fmt.Sprintf("send failed: %v", err)}
 	}
 	log.Printf("[boltgo-c] completed: 1 file in %s", time.Since(start).Round(time.Millisecond))
 	return nil
@@ -382,11 +385,11 @@ type ServerConfig struct {
 
 func RunServer(ctx context.Context, cfg ServerConfig) error {
 	if err := os.MkdirAll(cfg.ReceiveDir, 0755); err != nil {
-		return fmt.Errorf("create receive dir: %w", err)
+		return &ExitError{Code: ExitFatal, Message: fmt.Sprintf("create receive dir: %v", err)}
 	}
 	tlsCfg, err := serverTLSConfig()
 	if err != nil {
-		return fmt.Errorf("TLS config: %w", err)
+		return &ExitError{Code: ExitFatal, Message: fmt.Sprintf("TLS config: %v", err)}
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.Port)
 	listener, err := quic.ListenAddr(addr, tlsCfg, &quic.Config{
@@ -394,7 +397,7 @@ func RunServer(ctx context.Context, cfg ServerConfig) error {
 		MaxIncomingUniStreams: 512,
 	})
 	if err != nil {
-		return fmt.Errorf("listen: %w", err)
+		return &ExitError{Code: ExitFatal, Message: fmt.Sprintf("listen: %v", err)}
 	}
 	defer listener.Close()
 	log.Printf("[boltgo-s] listening on %s (receive dir: %s)", addr, cfg.ReceiveDir)
