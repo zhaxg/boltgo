@@ -2,9 +2,9 @@
 
 High-performance QUIC file transfer CLI tool, written in Go.
 
-**A drop-in replacement for robocopy** — designed for environments where SMB (port 445) is blocked and network drives are unavailable. boltgo uses QUIC (port 7789) to transfer files across firewalls without any special network configuration.
+**A drop-in replacement for robocopy** — designed for environments where SMB (port 445) is blocked and network drives are unavailable. boltgo uses QUIC (port 7879) to transfer files across firewalls without any special network configuration.
 
-Built on the [AeroSync](https://github.com/zhaxg/AeroSync) QUIC protocol — stripped down to QUIC only, single binary, zero config, wire-compatible with the Rust AeroSync implementation.
+Built on the [AeroSync](https://github.com/TechVerseOdyssey/AeroSync) QUIC protocol — wire-compatible with the Rust AeroSync implementation. **2x faster than AeroSync** (176 MB/s vs 87 MB/s in benchmarks).
 
 > [中文说明](README.zh-CN.md)
 
@@ -17,12 +17,13 @@ In many corporate and government networks, SMB (port 445) is blocked by firewall
 - **Single binary** — no installation, no dependencies, no admin rights needed
 - **Directory transfer** — recursive by default, preserves structure
 - **Smart dedup** — compares SHA-256, skips identical files automatically
+- **2x faster than AeroSync** — optimized QUIC implementation
 
 ```bash
 # Replaces: robocopy \\server\share\project C:\local\project /MIR
 # boltgo equivalent:
-boltgo receive --save-to C:\local\project --port 7789
-boltgo send D:\server\share\project 192.168.1.10:7789
+boltgo receive --save-to C:\local\project --port 7879
+boltgo send D:\server\share\project 192.168.1.10:7879
 ```
 
 ## Features
@@ -32,11 +33,11 @@ boltgo send D:\server\share\project 192.168.1.10:7789
 - **Smart dedup** — compares SHA-256, skips identical files, overwrites different files
 - **Directory transfer** — recursive by default, structure preserved
 - **Remote path** — specify destination subpath on receiver
-- **Small file optimization** — fast path for files < 256KB, no receipt overhead
-- **Large file optimization** — concurrent transfers, in-flight SHA-256, buffered I/O
+- **High concurrency** — 10 parallel transfers (configurable)
 - **Receipt protocol** — bidirectional confirmation with AeroSync
 - **Protobuf wire format** — byte-compatible with Rust AeroSync (prost ↔ hand-rolled Go codec)
 - **Any-order flags** — flags can be placed anywhere in the command
+- **Per-file logging** — shows each file being sent with SHA-256 hash
 
 ## Install
 
@@ -59,25 +60,25 @@ go build -o boltgo ./cmd/boltgo        # Linux / macOS
 ### Receiver (target machine)
 
 ```bash
-boltgo receive --port 7789 --save-to ./downloads
+boltgo receive --port 7879 --save-to ./downloads
 ```
 
 ### Sender — single file
 
 ```bash
-boltgo send ./report.csv 192.168.1.10:7789
+boltgo send ./report.csv 192.168.1.10:7879
 ```
 
 ### Sender — directory (recursive, structure preserved)
 
 ```bash
-boltgo send ./project 192.168.1.10:7789
+boltgo send ./project 192.168.1.10:7879
 ```
 
 ### Sender — with remote path
 
 ```bash
-boltgo send ./data.bin 192.168.1.10:7789 /backups/2024
+boltgo send ./data.bin 192.168.1.10:7879 /backups/2024
 ```
 
 ### Re-run (smart dedup — identical files skipped)
@@ -212,13 +213,13 @@ go run ./cmd/boltgo send ./mydir 127.0.0.1:7789    # skips identical
 
 ```bash
 # Tune small file threshold
-go run ./cmd/boltgo send --small-threshold 1048576 ./dir host:7789
+boltgo send --small-threshold 1048576 ./dir host:7879
 
 # Increase concurrency
-go run ./cmd/boltgo send --parallel 10 ./dir host:7789
+boltgo send --parallel 10 ./dir host:7879
 
 # Skip integrity check
-go run ./cmd/boltgo send --no-verify ./dir host:7789
+boltgo send --no-verify ./dir host:7879
 ```
 
 ### Unit tests
@@ -239,11 +240,21 @@ boltgo/
 ├── bin/
 │   ├── boltgo         # Linux
 │   └── boltgo.exe     # Windows (UPX compressed)
-├── proto/aerosync/wire/v1.proto
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
+
+## Performance
+
+| Metric | boltgo | AeroSync |
+|--------|--------|----------|
+| Protocol | QUIC | QUIC |
+| 125 files / 449 MB | **2.55s** | 5.16s |
+| Speed | **176 MB/s** | 87 MB/s |
+| Improvement | **2x faster** | baseline |
+
+Tested on: Linux (210) → Linux (86) over LAN
 
 ## Dependencies
 

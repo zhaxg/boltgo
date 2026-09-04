@@ -2,9 +2,9 @@
 
 基于 QUIC 协议的高性能文件传输 CLI 工具，Go 语言实现。
 
-**robocopy 替代方案** — 专为内网 445 端口被封、SMB 不可用的环境设计。boltgo 使用 QUIC（端口 7789）跨防火墙传输文件，无需特殊网络配置。
+**robocopy 替代方案** — 专为内网 445 端口被封、SMB 不可用的环境设计。boltgo 使用 QUIC（端口 7879）跨防火墙传输文件，无需特殊网络配置。
 
-基于 [AeroSync](https://github.com/zhaxg/AeroSync) QUIC 协议精简版，单二进制部署，零配置开箱即用，与 Rust AeroSync 字节级兼容。
+基于 [AeroSync](https://github.com/TechVerseOdyssey/AeroSync) QUIC 协议，与 Rust AeroSync 字节级兼容。**性能是 AeroSync 的 2 倍**（176 MB/s vs 87 MB/s）。
 
 ## 为什么需要 boltgo？
 
@@ -15,12 +15,13 @@
 - **单文件** — 无需安装、无依赖、无需管理员权限
 - **目录传输** — 默认递归，保持目录结构
 - **智能去重** — 比较 SHA-256，自动跳过相同文件
+- **性能卓越** — 比 AeroSync 快 2 倍
 
 ```bash
 # 替代: robocopy \\server\share\project C:\local\project /MIR
 # boltgo 等效:
-boltgo receive --save-to C:\local\project --port 7789
-boltgo send D:\server\share\project 192.168.1.10:7789
+boltgo receive --save-to C:\local\project --port 7879
+boltgo send D:\server\share\project 192.168.1.10:7879
 ```
 
 ## 特性
@@ -30,11 +31,11 @@ boltgo send D:\server\share\project 192.168.1.10:7789
 - **智能去重**：比较 SHA-256，跳过相同文件，覆盖不同文件
 - **目录传输**：默认递归，保持目录结构
 - **远程路径**：发送时指定接收端子路径
-- **小文件优化**：256KB 以下走快速路径，无 receipt 开销
-- **大文件优化**：并发传输，边传边算 SHA-256，缓冲写入
+- **高并发**：10 个并行传输（可配置）
 - **Receipt 协议**：与 AeroSync 双向确认
 - **Protobuf 线格式**：与 Rust AeroSync 字节级兼容
 - **Flag 任意顺序**：参数放在命令行任意位置都能识别
+- **Per-file 日志**：显示每个文件的发送状态和 SHA-256
 
 ## 安装
 
@@ -242,6 +243,17 @@ boltgo/
 ├── go.sum
 └── README.md
 ```
+
+## 性能
+
+| 指标 | boltgo | AeroSync |
+|------|--------|----------|
+| 协议 | QUIC | QUIC |
+| 125 文件 / 449 MB | **2.55s** | 5.16s |
+| 速度 | **176 MB/s** | 87 MB/s |
+| 提升 | **快 2 倍** | 基准 |
+
+测试环境：Linux (210) → Linux (86) 局域网
 
 ## 依赖
 
