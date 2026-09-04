@@ -40,11 +40,11 @@ jobs:
 
       - name: Build Linux amd64
         run: |
-          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o boltgo-linux-amd64 ./cmd/boltgo/
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" -o boltgo-linux-amd64 ./cmd/boltgo/
 
       - name: Build Windows amd64
         run: |
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o boltgo-windows-amd64.exe ./cmd/boltgo/
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" -o boltgo-windows-amd64.exe ./cmd/boltgo/
 
       - name: Compress with UPX
         run: |

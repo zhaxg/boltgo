@@ -12,7 +12,8 @@ import (
 	"time"
 )
 
-const version = "0.1.0-go"
+// version is set at build time via ldflags: -ldflags="-X main.version=v0.1.0"
+var version = "dev"
 
 // Exit codes (inspired by robocopy)
 const (
