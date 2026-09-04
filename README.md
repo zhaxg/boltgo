@@ -95,7 +95,7 @@ boltgo send ./project 192.168.1.10:7789
 
 | Flag | Description |
 |------|-------------|
-| `-v, --verbose` | Verbose log output (includes file:line in log) |
+| `-v, --verbose` | Verbose log output. Shows protocol details: control stream events, receipt frames, SHA-256 hashes, stream open/close, and server-side transfer progress. Default mode only shows essential info (connected, sent, completed). |
 
 ### `boltgo send`
 

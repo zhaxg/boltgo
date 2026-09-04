@@ -93,7 +93,7 @@ boltgo send ./project 192.168.1.10:7789
 
 | 参数 | 说明 |
 |------|------|
-| `-v, --verbose` | 详细日志输出（含文件名+行号） |
+| `-v, --verbose` | 详细日志输出。显示协议细节：control stream 事件、receipt 帧、SHA-256 哈希、stream 打开/关闭、服务端传输进度。默认模式只显示关键信息（connected, sent, completed）。 |
 
 ### `boltgo send`
 
