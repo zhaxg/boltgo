@@ -255,6 +255,44 @@ boltgo/
 
 测试环境：Linux (210) → Linux (86) 局域网
 
+## 返回码
+
+参考 robocopy 设计，boltgo 返回有意义的退出码：
+
+| 码 | 含义 | 说明 |
+|----|------|------|
+| 0 | 成功 | 所有文件传输完成 |
+| 1 | 成功（已复制） | 文件已复制 |
+| 2 | 成功（已跳过） | 文件被去重跳过 |
+| 3 | 成功（混合） | 部分复制 + 部分跳过 |
+| 8 | 连接错误 | 无法连接服务器 |
+| 9 | TLS 错误 | 握手失败 |
+| 10 | 部分失败 | 部分文件失败 |
+| 11 | 全部失败 | 所有文件传输失败 |
+| 16 | 致命错误 | 参数错误、路径不存在 |
+
+### Azure Pipelines 示例
+
+```powershell
+boltgo send ./data 192.168.1.10:7879
+if ($LASTEXITCODE -ge 8) {
+    Write-Error "boltgo 失败！返回码: $LASTEXITCODE"
+    exit 1
+}
+Write-Host "boltgo 成功！返回码: $LASTEXITCODE" -ForegroundColor Green
+```
+
+### Bash 示例
+
+```bash
+boltgo send ./data 192.168.1.10:7879
+if [ $? -ge 8 ]; then
+    echo "boltgo failed with exit code $?"
+    exit 1
+fi
+echo "boltgo succeeded"
+```
+
 ## 依赖
 
 | 包 | 用途 |

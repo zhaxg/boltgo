@@ -256,6 +256,44 @@ boltgo/
 
 Tested on: Linux (210) → Linux (86) over LAN
 
+## Exit codes
+
+Inspired by robocopy, boltgo returns meaningful exit codes:
+
+| Code | Meaning | Description |
+|------|---------|-------------|
+| 0 | Success | All files transferred successfully |
+| 1 | Success (copied) | Files were copied |
+| 2 | Success (skipped) | Files were skipped (dedup) |
+| 3 | Success (mixed) | Some copied, some skipped |
+| 8 | Connection error | Cannot reach server |
+| 9 | TLS error | Handshake failed |
+| 10 | Partial failure | Some files failed |
+| 11 | All failed | All files failed to send |
+| 16 | Fatal error | Bad arguments, path not found |
+
+### Azure Pipelines example
+
+```powershell
+boltgo send ./data 192.168.1.10:7879
+if ($LASTEXITCODE -ge 8) {
+    Write-Error "boltgo failed! Exit code: $LASTEXITCODE"
+    exit 1
+}
+Write-Host "boltgo succeeded! Exit code: $LASTEXITCODE" -ForegroundColor Green
+```
+
+### Bash example
+
+```bash
+boltgo send ./data 192.168.1.10:7879
+if [ $? -ge 8 ]; then
+    echo "boltgo failed with exit code $?"
+    exit 1
+fi
+echo "boltgo succeeded"
+```
+
 ## Dependencies
 
 | Package | Purpose |
