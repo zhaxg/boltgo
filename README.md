@@ -95,7 +95,7 @@ boltgo send ./project 192.168.1.10:7789
 
 | Flag | Description |
 |------|-------------|
-| `-v, --verbose` | Verbose log output. Shows protocol details: control stream events, receipt frames, SHA-256 hashes, stream open/close, and server-side transfer progress. Default mode only shows essential info (connected, sent, completed). |
+| `-v, --verbose` | Verbose log output. Shows protocol details:<br>- Control stream events<br>- Receipt frames<br>- SHA-256 hashes<br>- Stream open/close<br>- Server-side transfer progress<br><br>Default mode only shows essential info (connected, sent, completed). |
 
 ### `boltgo send`
 
@@ -292,6 +292,31 @@ if [ $? -ge 8 ]; then
     exit 1
 fi
 echo "boltgo succeeded"
+```
+
+## Verbose logging example
+
+### Default mode
+```
+[boltgo-c] connected to 192.168.1.10:7879
+[boltgo-c] sent 'data/file1.dll' (1048576 bytes, sha256=abc123def456)
+[boltgo-c] sent 'data/file2.dll' (2097152 bytes, sha256=789012345678)
+[boltgo-c] completed: 2/2 files, 3.00 MB in 0.15s (20.0 MB/s)
+```
+
+### Verbose mode (`-v`)
+```
+[boltgo-c] connected to 192.168.1.10:7879
+[boltgo-c] sent 'data/file1.dll' (1048576 bytes, sha256=abc123def456)
+[boltgo-c] sent 'data/file2.dll' (2097152 bytes, sha256=789012345678)
+[boltgo-c] completed: 2/2 files, 3.00 MB in 0.15s (20.0 MB/s)
+
+# Server side (with -v):
+[boltgo-s] listening on 0.0.0.0:7879
+[boltgo-s] new connection from 192.168.1.10:12345
+[boltgo-s] control: TransferStart receipt=abc123 file=data/file1.dll size=1048576
+[boltgo-s] received 'data/file1.dll' 1048576 bytes
+[boltgo-s] sent Received + Acked for receipt=abc123
 ```
 
 ## Dependencies
