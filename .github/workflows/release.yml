@@ -52,37 +52,19 @@ jobs:
           upx --best boltgo-linux-amd64 || true
           upx --best boltgo-windows-amd64.exe || true
 
-      - name: Create checksums
-        run: |
-          sha256sum boltgo-linux-amd64 boltgo-windows-amd64.exe > checksums.txt
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Release ${{ steps.version.outputs.tag }}
           body: |
-            ## Changes
-            - See commit history for details
+            ## boltgo ${{ steps.version.outputs.tag }}
             
-            ## Downloads
-            | File | Platform |
-            |------|----------|
-            | boltgo-linux-amd64 | Linux x86_64 |
-            | boltgo-windows-amd64.exe | Windows x86_64 |
+            High-performance QUIC file transfer tool.
             
-            ## Usage
-            ```bash
-            # Linux
-            chmod +x boltgo-linux-amd64
-            ./boltgo-linux-amd64 send ./data 192.168.1.10:7879
-            
-            # Windows
-            boltgo-windows-amd64.exe send ./data 192.168.1.10:7879
-            ```
+            See [README](https://github.com/zhaxg/boltgo#readme) for usage.
           files: |
             boltgo-linux-amd64
             boltgo-windows-amd64.exe
-            checksums.txt
           draft: false
           prerelease: false
