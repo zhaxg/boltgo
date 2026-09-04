@@ -1,0 +1,94 @@
+syntax = "proto3";
+package aerosync.wire.v1;
+
+// ── Control stream (sender → receiver, bidirectional) ──
+
+message TransferStart {
+  string receipt_id = 1;
+  string file_name = 2;
+  uint64 size_bytes = 3;
+  string sha256 = 4;
+  Metadata metadata = 5;
+  uint32 chunk_size = 6;
+}
+
+message Metadata {
+  string id = 1;
+  string from_node = 2;
+  string to_node = 3;
+  string content_type = 5;
+  uint64 size_bytes = 6;
+  string sha256 = 7;
+  string file_name = 8;
+  string protocol = 9;
+  string session_id = 10;
+  optional string trace_id = 20;
+  optional string conversation_id = 21;
+  repeated string parent_file_ids = 22;
+  optional string correlation_id = 25;
+  map<string, string> user_metadata = 99;
+}
+
+message Cancel {
+  string receipt_id = 1;
+  string reason = 2;
+}
+
+message Handshake {
+  string protocol_version = 1;
+  string sender_node_id = 2;
+  bytes auth_proof = 3;
+  uint32 capabilities = 4;
+}
+
+message ControlFrame {
+  oneof body {
+    Handshake handshake = 1;
+    TransferStart transfer_start = 2;
+    Cancel cancel = 3;
+  }
+}
+
+// ── Receipt stream (receiver → sender, bidirectional) ──
+
+message BytesReceived {
+  uint64 bytes = 1;
+}
+
+message Received {
+  bool checksum_ok = 1;
+  string sha256 = 2;
+}
+
+message Failed {
+  ErrorCode code = 1;
+  string detail = 2;
+}
+
+message Acked {}
+
+message Nacked {
+  string reason = 1;
+}
+
+message ReceiptFrame {
+  string receipt_id = 1;
+  oneof body {
+    BytesReceived bytes_received = 2;
+    Received received = 3;
+    Failed failed = 4;
+    Acked acked = 5;
+    Nacked nacked = 6;
+  }
+}
+
+enum ErrorCode {
+  ERROR_UNSPECIFIED = 0;
+  ERROR_AUTH = 1;
+  ERROR_CHECKSUM = 2;
+  ERROR_DISK_FULL = 3;
+  ERROR_PERMISSION = 4;
+  ERROR_TIMEOUT = 5;
+  ERROR_CANCELLED_REMOTE = 6;
+  ERROR_INTERNAL = 99;
+}
