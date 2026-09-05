@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,18 +14,20 @@ const (
 
 // setupFileLogging enables logging to <dest>/boltgo.log with rotation.
 func setupFileLogging(dest string) {
+	// Ensure dest directory exists
+	os.MkdirAll(dest, 0755)
+
 	rotateLog(dest)
 
 	logPath := filepath.Join(dest, "boltgo.log")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot open log file %s: %v\n", logPath, err)
 		return
 	}
 
-	// Tee: write to both stderr and file
-	multiWriter := io.MultiWriter(os.Stderr, f)
-	log.SetOutput(multiWriter)
+	// Write to file only (no stderr in service mode)
+	log.SetOutput(f)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 }
 
 // rotateLog rotates boltgo.log if it exceeds maxLogSize.
