@@ -111,13 +111,12 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 	// Collect all files
 	var files []fileInfo
 	var totalSize uint64
-	parentDir := filepath.Dir(dirPath)
 
 	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
 		}
-		relPath, e := filepath.Rel(parentDir, path)
+		relPath, e := filepath.Rel(dirPath, path)
 		if e != nil {
 			relPath = filepath.Base(path)
 		}

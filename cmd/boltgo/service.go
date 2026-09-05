@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func cmdService(args []string) {
@@ -119,6 +120,16 @@ WantedBy=multi-user.target
 	fmt.Println()
 	fmt.Println("Manage: systemctl start|stop|status boltgo")
 	fmt.Println("Logs:   journalctl -u boltgo -f")
+
+	// Auto-start the service
+	fmt.Println("Starting service...")
+	exec.Command("systemctl", "start", "boltgo").Run()
+	time.Sleep(1 * time.Second)
+	if out, _ := exec.Command("systemctl", "is-active", "boltgo").CombinedOutput(); strings.TrimSpace(string(out)) == "active" {
+		fmt.Println("Service started successfully.")
+	} else {
+		fmt.Println("Warning: service may not have started. Check: systemctl status boltgo")
+	}
 }
 
 func uninstallSystemd() {
@@ -192,6 +203,16 @@ func installWindows(exePath string, cfg RecvConfig) {
 	fmt.Printf("  boltgo service install --dest %s --port %d --bind %s\n", cfg.Dest, cfg.Port, cfg.Bind)
 	fmt.Println()
 	fmt.Println("Manage: Start-Service boltgo / Stop-Service boltgo / Get-Service boltgo")
+
+	// Auto-start the service
+	fmt.Println("Starting service...")
+	psRun("Start-Service boltgo")
+	time.Sleep(1 * time.Second)
+	if psRun("Get-Service boltgo | Select -ExpandProperty Status") == "Running" {
+		fmt.Println("Service started successfully.")
+	} else {
+		fmt.Println("Warning: service may not have started. Check: Get-Service boltgo")
+	}
 }
 
 func uninstallWindows() {
