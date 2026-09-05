@@ -8,3 +8,5 @@ testdir/
 bigfile.bin
 /bin/
 .code-graph/
+.aerosync/
+go.sum
