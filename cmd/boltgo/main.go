@@ -77,6 +77,11 @@ func main() {
 	}
 	args = filtered
 
+	if len(args) == 0 {
+		printUsage()
+		os.Exit(ExitFatal)
+	}
+
 	log.SetOutput(milliWriter{})
 	log.SetFlags(0)
 
