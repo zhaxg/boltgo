@@ -104,6 +104,7 @@ func SendDir(ctx context.Context, cfg ClientConfig, dirPath, remotePrefix string
 		return &ExitError{Code: ExitErrorConn, Message: fmt.Sprintf("connection failed: %v", err)}
 	}
 	defer conn.CloseWithError(0, "done")
+	log.Printf("[boltgo-c] connected to %s", cfg.ServerAddr)
 
 	start := time.Now()
 
@@ -333,6 +334,7 @@ func SendFile(ctx context.Context, cfg ClientConfig, filePath, remoteName string
 		return &ExitError{Code: ExitErrorConn, Message: fmt.Sprintf("connection failed: %v", err)}
 	}
 	defer conn.CloseWithError(0, "done")
+	log.Printf("[boltgo-c] connected to %s", cfg.ServerAddr)
 
 	start := time.Now()
 	fi, err := os.Stat(filePath)
@@ -365,7 +367,6 @@ func dialServer(ctx context.Context, cfg ClientConfig) (*quic.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	log.Printf("[boltgo-c] connected to %s", addr)
 	return conn, nil
 }
 

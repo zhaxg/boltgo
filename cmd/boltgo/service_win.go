@@ -80,7 +80,7 @@ func runRecvFromService(ctx context.Context) error {
 	}
 
 	// Setup file logging for service mode
-	setupFileLogging(cfg.Dest)
+	setupFileLogging(cfg.Dest, true)
 
 	serverCfg := ServerConfig{
 		BindAddr:    cfg.Bind,

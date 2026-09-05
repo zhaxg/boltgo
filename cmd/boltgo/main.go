@@ -335,7 +335,7 @@ func cmdReceive(args []string) {
 	cfg := parseRecvFlags(args)
 
 	// Setup file logging to <dest>/boltgo.log
-	setupFileLogging(cfg.Dest)
+	setupFileLogging(cfg.Dest, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

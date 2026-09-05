@@ -1,59 +1,98 @@
 package main
 
 import (
-	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const (
-	maxLogSize  = 10 * 1024 * 1024 // 10MB
-	maxLogFiles = 2                 // keep boltgo.log.1 and boltgo.log.2
+	maxLogSize    = 10 * 1024 * 1024
+	maxLogFiles   = 2
+	flushInterval = 2 * time.Second
 )
 
-// setupFileLogging enables logging to <dest>/boltgo.log with rotation.
-func setupFileLogging(dest string) {
-	// Ensure dest directory exists
-	os.MkdirAll(dest, 0755)
+var logChan chan []byte
 
+// setupFileLogging enables async logging to <dest>/boltgo.log.
+func setupFileLogging(dest string, isService bool) {
+	os.MkdirAll(dest, 0755)
 	rotateLog(dest)
 
 	logPath := filepath.Join(dest, "boltgo.log")
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
+	logChan = make(chan []byte, 1000)
+	go asyncLogWriter(logPath)
 
-	// Write to file only (no stderr in service mode)
-	log.SetOutput(f)
+	if isService {
+		log.SetOutput(&channelWriter{})
+	} else {
+		log.SetOutput(io.MultiWriter(os.Stderr, &channelWriter{}))
+	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 }
 
-// rotateLog rotates boltgo.log if it exceeds maxLogSize.
+func asyncLogWriter(path string) {
+	var buf [][]byte
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		for _, line := range buf {
+			f.Write(line)
+		}
+		f.Close()
+		buf = buf[:0]
+	}
+
+	for {
+		select {
+		case line := <-logChan:
+			buf = append(buf, line)
+			if len(buf) >= 100 {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+type channelWriter struct{}
+
+func (w *channelWriter) Write(p []byte) (int, error) {
+	line := make([]byte, len(p))
+	copy(line, p)
+	select {
+	case logChan <- line:
+	default:
+	}
+	return len(p), nil
+}
+
 func rotateLog(dir string) {
 	logPath := filepath.Join(dir, "boltgo.log")
-
-	// Check if log exists and exceeds max size
 	info, err := os.Stat(logPath)
 	if err != nil || info.Size() < maxLogSize {
 		return
 	}
-
-	// Delete oldest: boltgo.log.2
-	oldest := fmt.Sprintf("%s.%d", logPath, maxLogFiles)
+	oldest := logPath + ".2"
 	os.Remove(oldest)
-
-	// Shift: .1 → .2, .log → .1
 	for i := maxLogFiles; i >= 1; i-- {
-		src := fmt.Sprintf("%s.%d", logPath, i)
-		dst := fmt.Sprintf("%s.%d", logPath, i+1)
+		src := logPath + "." + string(rune('0'+i))
+		dst := logPath + "." + string(rune('0'+i+1))
 		if i == maxLogFiles {
-			os.Remove(dst) // remove oldest
+			os.Remove(dst)
 		}
 		os.Rename(src, dst)
 	}
-
-	// Current → .1
-	os.Rename(logPath, fmt.Sprintf("%s.1", logPath))
+	os.Rename(logPath, logPath+".1")
 }
