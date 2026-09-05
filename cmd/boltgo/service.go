@@ -159,7 +159,7 @@ func installWindows(exePath string, cfg RecvConfig) {
 	if !alreadyInTarget {
 		// Stop existing service first (releases file lock)
 		fmt.Println("Stopping existing service...")
-		exec.Command("sc", "stop", "boltgo").Run()
+		psRun("Stop-Service boltgo -Force -ErrorAction SilentlyContinue")
 
 		// Copy to C:\Windows
 		fmt.Printf("Copying: %s -> %s\n", exePath, target)
@@ -170,70 +170,54 @@ func installWindows(exePath string, cfg RecvConfig) {
 	}
 
 	// If service already exists, tell user to uninstall first
-	_, queryErr := exec.Command("sc", "query", "boltgo").CombinedOutput()
-	if queryErr == nil {
+	if psRun("Get-Service boltgo -ErrorAction SilentlyContinue") != "" {
 		fmt.Fprintln(os.Stderr, "Error: service already exists.")
 		fmt.Fprintln(os.Stderr, "  Try: boltgo service uninstall")
-		fmt.Fprintln(os.Stderr, "  Or:  sc delete boltgo")
 		fmt.Fprintln(os.Stderr, "  If still fails, restart Windows and try again.")
 		os.Exit(ExitFatal)
 	}
 
-	// Register service (use exec.Command directly for sc - cmd /c mangles sc's argument parsing)
-	binLine := fmt.Sprintf("\"%s\" recv --dest \"%s\" --port %d --bind %s", target, cfg.Dest, cfg.Port, cfg.Bind)
+	// Register service using PowerShell New-Service
 	fmt.Println("Registering service...")
-
-	scOut, scErr := exec.Command("sc", "create", "boltgo",
-		"binPath=", binLine,
-		"start=", "auto",
-		"DisplayName=", "boltgo receive service",
-	).CombinedOutput()
-	scOutput := strings.TrimSpace(string(scOut))
-	if scErr != nil {
-		if strings.Contains(scOutput, "1072") {
-			fmt.Fprintln(os.Stderr, "Error: service is marked for deletion.")
-			fmt.Fprintln(os.Stderr, "  Please restart Windows, then run: boltgo service install --dest D:\\tmp --port 7879")
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: sc create failed: %v\n%s\n", scErr, scOutput)
-		}
-		os.Exit(ExitFatal)
-	}
-	if scOutput != "" {
-		fmt.Printf("  %s\n", scOutput)
+	psCmd := fmt.Sprintf(
+		"New-Service -Name boltgo -BinaryPathName 'boltgo.exe recv --dest \"%s\" --port %d --bind %s' -StartupType Automatic -DisplayName 'boltgo receive service'",
+		cfg.Dest, cfg.Port, cfg.Bind,
+	)
+	out := psRun(psCmd)
+	if out != "" {
+		fmt.Printf("  %s\n", out)
 	}
 
 	fmt.Println("Service installed: boltgo")
 	fmt.Printf("  boltgo service install --dest %s --port %d --bind %s\n", cfg.Dest, cfg.Port, cfg.Bind)
 	fmt.Println()
-	fmt.Println("Manage: sc start|stop|status boltgo")
+	fmt.Println("Manage: Start-Service boltgo / Stop-Service boltgo / Get-Service boltgo")
 }
 
 func uninstallWindows() {
-	_, queryErr := exec.Command("sc", "query", "boltgo").CombinedOutput()
-	if queryErr != nil {
+	if psRun("Get-Service boltgo -ErrorAction SilentlyContinue") == "" {
 		fmt.Println("Service not installed, nothing to do.")
 		return
 	}
 
 	fmt.Println("Stopping service...")
-	exec.Command("sc", "stop", "boltgo").Run()
+	// Use sc.exe for stop (PS5 compatible, ignore GBK output)
+	exec.Command("sc.exe", "stop", "boltgo").Run()
 
 	fmt.Println("Deleting service...")
-	deleteOut, deleteErr := exec.Command("sc", "delete", "boltgo").CombinedOutput()
-	deleteStr := strings.TrimSpace(string(deleteOut))
-	if deleteErr != nil {
-		// 1060 = not installed, 1072 = already marked for deletion
-		if strings.Contains(deleteStr, "1060") || strings.Contains(deleteStr, "1072") {
-			fmt.Println("  Service already removed.")
-		} else {
-			fmt.Fprintf(os.Stderr, "Error: sc delete failed: %v\n%s\n", deleteErr, deleteStr)
-			os.Exit(ExitFatal)
-		}
-	} else if deleteStr != "" {
-		fmt.Printf("  %s\n", deleteStr)
-	}
+	// Use sc.exe delete (PS5 compatible, GBK output ignored)
+	exec.Command("sc.exe", "delete", "boltgo").Run()
 
 	fmt.Println("Service uninstalled.")
+}
+
+// psRun runs a PowerShell command and returns trimmed output.
+func psRun(cmd string) string {
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", cmd).CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // copyFile copies a file from src to dst, preserving permissions.
